@@ -42,6 +42,7 @@ static uint32_t play_max_sz = 2147483648LL;
 static int format = SNDRV_PCM_FORMAT_S16_LE;
 static int period = 0;
 static int compressed = 0;
+static int piped = 0;
 
 static struct option long_options[] =
 {
@@ -155,7 +156,7 @@ static int set_params(struct pcm *pcm)
 }
 
 static int play_file(unsigned rate, unsigned channels, int fd,
-              unsigned flags, const char *device)
+              unsigned flags, const char *device, unsigned data_sz)
 {
     struct pcm *pcm;
     struct mixer *mixer;
@@ -170,6 +171,7 @@ static int play_file(unsigned rate, unsigned channels, int fd,
     int err;
     static int start = 0;
     struct pollfd pfd[1];
+    int remainingData = 0;
 
     flags |= PCM_OUT;
 
@@ -234,6 +236,8 @@ static int play_file(unsigned rate, unsigned channels, int fd,
        }
         while(1);
     }
+
+    remainingData = data_sz;
 
     if (flags & PCM_MMAP) {
         u_int8_t *dst_addr = NULL;
@@ -304,11 +308,26 @@ static int play_file(unsigned rate, unsigned channels, int fd,
               * This reduces a extra copy of intermediate buffer.
               */
              memset(dst_addr, 0x0, bufsize);
+
+             if (data_sz && !piped) {
+                 if (remainingData < bufsize) {
+                     bufsize = remainingData;
+                     frames = (pcm->flags & PCM_MONO) ? (remainingData / 2) : (remainingData / 4);
+                 }
+             }
+
              err = read(fd, dst_addr , bufsize);
              if (debug)
                  fprintf(stderr, "read %d bytes from file\n", err);
              if (err <= 0)
                  break;
+
+             if (data_sz && !piped) {
+                 remainingData -= bufsize;
+                 if (remainingData <= 0)
+                     break;
+             }
+
              /*
               * Increment the application pointer with data written to kernel.
               * Update kernel with the new sync pointer.
@@ -380,9 +399,9 @@ start_done:
             pcm_close(pcm);
             return -errno;
         }
+
         bufsize = pcm->period_size;
-        if (debug)
-            fprintf(stderr, "Aplay:bufsize = %d\n", bufsize);
+
         data = calloc(1, bufsize);
         if (!data) {
             fprintf(stderr, "Aplay:could not allocate %d bytes\n", bufsize);
@@ -390,12 +409,26 @@ start_done:
             return -ENOMEM;
         }
 
-        while (read(fd, data, bufsize) == bufsize) {
+        if (data_sz && !piped) {
+            if (remainingData < bufsize)
+                bufsize = remainingData;
+        }
+
+        while (read(fd, data, bufsize) > 0) {
             if (pcm_write(pcm, data, bufsize)){
                 fprintf(stderr, "Aplay: pcm_write failed\n");
                 free(data);
                 pcm_close(pcm);
                 return -errno;
+            }
+            memset(data, 0, bufsize);
+
+            if (data_sz && !piped) {
+                remainingData -= bufsize;
+                if (remainingData <= 0)
+                    break;
+                if (remainingData < bufsize)
+                       bufsize = remainingData;
             }
         }
         free(data);
@@ -412,6 +445,7 @@ int play_raw(const char *fg, int rate, int ch, const char *device, const char *f
 
     if(!fn) {
         fd = fileno(stdin);
+        piped = 1;
     } else {
         fd = open(fn, O_RDONLY);
         if (fd < 0) {
@@ -427,7 +461,7 @@ int play_raw(const char *fg, int rate, int ch, const char *device, const char *f
 
     fprintf(stderr, "aplay: Playing '%s': format %s ch = %d\n",
 		    fn, get_format_desc(format), ch );
-    return play_file(rate, ch, fd, flag, device);
+    return play_file(rate, ch, fd, flag, device, 0);
 }
 
 int play_wav(const char *fg, int rate, int ch, const char *device, const char *fn)
@@ -439,6 +473,7 @@ int play_wav(const char *fg, int rate, int ch, const char *device, const char *f
     if (pcm_flag) {
         if(!fn) {
             fd = fileno(stdin);
+            piped = 1;
         } else {
             fd = open(fn, O_RDONLY);
             if (fd < 0) {
@@ -476,6 +511,7 @@ int play_wav(const char *fg, int rate, int ch, const char *device, const char *f
         fd = -EBADFD;
         hdr.sample_rate = rate;
         hdr.num_channels = ch;
+        hdr.data_sz = 0;
     }
 ignore_header:
     if (!strncmp(fg, "M", sizeof("M")))
@@ -484,7 +520,7 @@ ignore_header:
         flag = PCM_NMMAP;
     fprintf(stderr, "aplay: Playing '%s':%s\n", fn, get_format_desc(format) );
 
-    return play_file(hdr.sample_rate, hdr.num_channels, fd, flag, device);
+    return play_file(hdr.sample_rate, hdr.num_channels, fd, flag, device, hdr.data_sz);
 }
 
 int main(int argc, char **argv)
