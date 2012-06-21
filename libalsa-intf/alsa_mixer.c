@@ -34,7 +34,7 @@
 #include "alsa_audio.h"
 
 #define LOG_TAG "alsa_mixer"
-#define LOG_NDEBUG 0
+//#define LOG_NDEBUG 0
 #include <utils/Log.h>
 
 #define check_range(val, min, max) \
