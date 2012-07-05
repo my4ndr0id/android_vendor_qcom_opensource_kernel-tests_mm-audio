@@ -236,6 +236,9 @@ static card_mapping_t card_mapping_list[] = {
 #define SND_USE_CASE_DEV_SPDIF_SPEAKER_HEADSET "SPDIF Speaker Headset"
 #define SND_USE_CASE_DEV_SPDIF_SPEAKER_ANC_HEADSET "SPDIF Speaker ANC Headset"
 #define SND_USE_CASE_DEV_DUMMY_TX "Dummy Tx"
+#define SND_USE_CASE_DEV_VOC_EARPIECE "Voice Earpiece"
+#define SND_USE_CASE_DEV_VOC_HEADPHONE "Voice Headphones"
+#define SND_USE_CASE_DEV_VOC_ANC_HEADSET "Voice ANC Headset"
 
 #define SND_USE_CASE_MOD_PLAY_FM         "Play FM"
 #define SND_USE_CASE_MOD_CAPTURE_FM      "Capture FM"
